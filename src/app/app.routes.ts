@@ -80,6 +80,22 @@ export const routes: Routes = [
     data: { title: 'Product Details' }
   },
   {
+    path: 'events',
+    loadComponent: () =>
+      import('./features/events/pages/events-dashboard/events-dashboard').then(
+        (m) => m.EventsDashboard
+      ),
+    data: { title: 'Kafka Events Monitor' },
+  },
+  {
+    path: 'events/logs',
+    loadComponent: () =>
+      import('./features/events/pages/kafka-logs/kafka-logs').then(
+        (m) => m.KafkaLogs
+      ),
+    data: { title: 'Kafka Historical Logs' },
+  },
+  {
     path: '',
     redirectTo: '/locations',
     pathMatch: 'full'

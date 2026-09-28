@@ -112,10 +112,10 @@
                 <select
                   class="input pg__product-select"
                   [attr.aria-label]="'Product for slot ' + r.slotNumber"
-                  [value]="r.productId"
-                  (change)="onInputChange(r.id, 'productId', $event)"
+                  [ngModel]="r.productId"
+                  (ngModelChange)="setCell(r.id, 'productId', $event)"
                 >
-                  <option *ngFor="let p of catalogList()" [value]="p.id">{{ p.name }}</option>
+                  <option *ngFor="let p of catalogList()" [ngValue]="p.id">{{ p.name }}</option>
                 </select>
                 <span class="pg__sku">{{ r.sku }}</span>
               </div>

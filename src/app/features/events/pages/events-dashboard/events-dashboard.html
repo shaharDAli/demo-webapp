@@ -1,0 +1,571 @@
+<div class="events-page">
+  <!-- Breadcrumb -->
+  <div class="events-page__crumb">
+    <span>Messaging</span>
+    <span class="events-page__crumb-sep">/</span>
+    <span>Kafka Event Bus</span>
+  </div>
+
+  <!-- Header -->
+  <div class="events-page__head">
+    <div>
+      <div class="events-page__kicker">KRaft · Confluent Avro · Microservices Event Mesh</div>
+      <h2>Kafka Events Monitor</h2>
+      <div class="events-page__subtitle">
+        Test and observe end-to-end event publication and consumption across
+        <code>demo-assets-service</code> and <code>demo-planogram-service</code>.
+      </div>
+    </div>
+    <div class="events-page__head-actions">
+      <a routerLink="/events/logs" class="btn btn-primary" title="View historical event coordinates & logs in MySQL">
+        <svg viewBox="0 0 24 24" width="16" height="16">
+          <path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>
+        </svg>
+        Historical Logs & Coordinates
+      </a>
+      <a href="http://localhost:8088" target="_blank" rel="noopener noreferrer" class="btn btn-secondary"
+        title="Open Kafka UI in a new tab">
+        <svg viewBox="0 0 24 24" width="16" height="16">
+          <use href="#i-dash"></use>
+        </svg>
+        Open Kafka UI (Port 8088)
+      </a>
+    </div>
+  </div>
+
+  <!-- Tabs Navigation -->
+  <div class="events-page__tabs">
+    <button type="button" class="events-page__tab" [class.is-active]="activeTab() === 'tester'"
+      (click)="activeTab.set('tester')">
+      <svg viewBox="0 0 24 24" width="16" height="16">
+        <use href="#i-event"></use>
+      </svg>
+      Live Event Testing
+    </button>
+    <button type="button" class="events-page__tab" [class.is-active]="activeTab() === 'guide'"
+      (click)="activeTab.set('guide')">
+      <svg viewBox="0 0 24 24" width="16" height="16">
+        <use href="#i-box"></use>
+      </svg>
+      Multiple Consumers Architecture Guide
+    </button>
+  </div>
+
+  <!-- TAB 1: Live Event Testing -->
+  <div *ngIf="activeTab() === 'tester'" class="events-page__content">
+
+    <!-- Topology Visual Pipeline Bar -->
+    <div class="topology-banner">
+      <div class="topology-node">
+        <span class="topology-badge topology-badge--producer">Producer</span>
+        <strong>demo-assets-service</strong>
+        <span class="topology-meta">Port 8001 · KafkaAvroSerializer</span>
+      </div>
+
+      <div class="topology-arrow">
+        <span class="topology-topic">TOPIC: demo-ping-topic</span>
+        <div class="topology-line" [class.is-active]="isSending() || isPolling()">
+          <span class="topology-dot"></span>
+        </div>
+        <span class="topology-meta">Schema Registry :8081</span>
+      </div>
+
+      <div class="topology-node">
+        <span class="topology-badge topology-badge--consumer">Consumer</span>
+        <strong>demo-planogram-service</strong>
+        <span class="topology-meta">Port 8002 · Group: planogram-service-group</span>
+      </div>
+    </div>
+
+    <!-- Live Sync Status Banner -->
+    <div class="sync-banner" [attr.data-status]="syncStatus().state">
+      <div class="sync-banner__icon">
+        <span *ngIf="syncStatus().state === 'SYNCED'">✓</span>
+        <span *ngIf="syncStatus().state === 'PENDING'">⏳</span>
+        <span *ngIf="syncStatus().state === 'LAG'">⚠</span>
+        <span *ngIf="syncStatus().state === 'IDLE'">○</span>
+      </div>
+      <div class="sync-banner__info">
+        <strong>Sync State: {{ syncStatus().label }}</strong>
+        <span *ngIf="lastPublished()">
+          Last Sent: <code>{{ lastPublished()!.id.length <= 8 ? lastPublished()!.id : (lastPublished()!.id.substring(0, 8) + '...') }}</code>
+          · Last Consumed:
+          <code>{{ lastConsumed()?.id ? (lastConsumed()!.id!.length <= 8 ? lastConsumed()!.id : (lastConsumed()!.id!.substring(0, 8) + '...')) : 'none' }}</code>
+        </span>
+      </div>
+      <div class="sync-banner__stats">
+        <span>Sent: <strong>{{ publishedCount() }}</strong></span>
+        <span class="sep">|</span>
+        <span>Consumed: <strong>{{ consumedCount() }}</strong></span>
+      </div>
+    </div>
+
+    <!-- Two-Column Testing Grid -->
+    <div class="pipeline-grid">
+
+      <!-- Column 1: Producer (Assets Service) -->
+      <div class="card pipeline-card">
+        <div class="pipeline-card__header">
+          <div>
+            <div class="card-kicker">Event Producer · Assets Service</div>
+            <h3 class="card-title">Publish Ping Event</h3>
+          </div>
+          <div class="card-header-actions">
+            <button type="button" class="btn btn-secondary btn-sm" (click)="generateAll()"
+              title="Auto-generate fresh IDs, service, and timestamp for all fields">
+              Generate All
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" (click)="loadSamplePing()"
+              title="Reset to sample health check ping">
+              Load Sample Ping
+            </button>
+          </div>
+        </div>
+
+        <p class="card-body">
+          Dispatches a typed <code>com.demo.shared.events.dto.PingEvent</code> JSON payload to
+          <code>POST /api/assets/kafka/ping</code>.
+        </p>
+
+        <!-- Form fields matching sample ping -->
+        <div class="event-form-grid">
+          <div class="field">
+            <div class="field-label-row">
+              <label for="eventId">Event ID (0-5 chars)</label>
+              <button type="button" class="btn-link-action" (click)="generateNewId()">Generate</button>
+            </div>
+            <input id="eventId" type="text" class="input font-mono" maxlength="5" [ngModel]="eventId()"
+              (ngModelChange)="eventId.set($event)" placeholder="e.g. A1B2C" />
+          </div>
+
+          <div class="field">
+            <div class="field-label-row">
+              <label for="pingMsg">Message (UUID)</label>
+              <button type="button" class="btn-link-action" (click)="generateNewMessage()">Generate</button>
+            </div>
+            <input id="pingMsg" type="text" class="input font-mono" [ngModel]="eventMessage()"
+              (ngModelChange)="eventMessage.set($event)" placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000" />
+          </div>
+
+          <div class="field">
+            <div class="field-label-row">
+              <label for="eventSource">Source Service</label>
+              <button type="button" class="btn-link-action" (click)="generateNewService()">Generate</button>
+            </div>
+            <input id="eventSource" type="text" class="input font-mono" [ngModel]="eventSourceService()"
+              (ngModelChange)="eventSourceService.set($event)" placeholder="e.g. service-a1b2c3d4 or payment-gateway"
+              list="serviceSuggestions" />
+            <datalist id="serviceSuggestions">
+              <option value="payment-gateway">
+              <option value="demo-assets-service">
+              <option value="demo-planogram-service">
+              <option value="order-service">
+              <option value="inventory-service">
+              <option value="auth-service">
+              <option value="notification-service">
+            </datalist>
+          </div>
+
+          <div class="field">
+            <div class="field-label-row">
+              <label for="eventTimestamp">Timestamp (Epoch Millis)</label>
+              <button type="button" class="btn-link-action" (click)="setTimestampToNow()">Now</button>
+            </div>
+            <input id="eventTimestamp" type="number" class="input font-mono" [ngModel]="eventTimestamp()"
+              (ngModelChange)="eventTimestamp.set($event)" />
+          </div>
+        </div>
+
+        <!-- Live Payload Preview -->
+        <details class="json-preview-details" open>
+          <summary class="card-kicker">Payload Dispatched to API (JSON Body)</summary>
+          <pre class="code-block code-block--preview"><code>{{ currentPayloadJson() }}</code></pre>
+        </details>
+
+        <!-- Batch Delay & Controls for Crash Testing -->
+        <div class="batch-controller-card">
+          <div class="batch-controller-header">
+            <span class="card-kicker">Batch Sending & Delay (for Manual Offset & Crash Testing)</span>
+          </div>
+
+          <div class="batch-controller-grid">
+            <div class="field">
+              <label for="batchCountSelect">Batch Size</label>
+              <select
+                id="batchCountSelect"
+                class="input input-sm"
+                [disabled]="isBatchRunning()"
+                [ngModel]="batchCount()"
+                (ngModelChange)="batchCount.set(+$event)"
+              >
+                <option [value]="3">3 events</option>
+                <option [value]="5">5 events (Default)</option>
+                <option [value]="10">10 events</option>
+                <option [value]="20">20 events</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="batchDelaySelect">Delay Between Events</label>
+              <select
+                id="batchDelaySelect"
+                class="input input-sm"
+                [disabled]="isBatchRunning()"
+                [ngModel]="batchDelaySec()"
+                (ngModelChange)="batchDelaySec.set(+$event)"
+              >
+                <option [value]="1">1 second</option>
+                <option [value]="2">2 seconds</option>
+                <option [value]="3">3 seconds (Recommended)</option>
+                <option [value]="5">5 seconds (Crash testing)</option>
+                <option [value]="8">8 seconds (Plenty of time)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Live Progress Banner when Batch is Running -->
+          <div *ngIf="isBatchRunning() && batchProgress()" class="batch-progress-box">
+            <div class="batch-progress-status">
+              <span class="status-pulse is-live"></span>
+              <span class="batch-progress-title">
+                Batch active: Sent <strong>{{ batchProgress()!.current }}</strong> of <strong>{{ batchCount() }}</strong>
+              </span>
+              <span *ngIf="batchProgress()!.countdown > 0" class="badge-countdown">
+                Next in <strong>{{ batchProgress()!.countdown }}s</strong>
+              </span>
+            </div>
+            <div class="batch-hint">
+              ⚡ Stop or kill <code>DemoPlanogramServiceApplication</code> in your IDE now to test uncommitted offset replay!
+            </div>
+          </div>
+        </div>
+
+        <div class="pipeline-card__actions">
+          <button
+            type="button"
+            class="btn btn-primary"
+            [disabled]="isSending() || isBatchRunning()"
+            (click)="publishPing()"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16">
+              <use href="#i-event"></use>
+            </svg>
+            {{ isSending() && !isBatchRunning() ? 'Publishing…' : 'Publish Single Ping' }}
+          </button>
+
+          <button
+            *ngIf="!isBatchRunning()"
+            type="button"
+            class="btn btn-secondary"
+            [disabled]="isSending()"
+            (click)="startBatch()"
+            title="Start automated batch sending with delay"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16">
+              <path fill="currentColor" d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm4.2 14.2L11 13V7h1.5v5.2l4.5 2.7-.8 1.3z"/>
+            </svg>
+            Send Batch ({{ batchCount() }}x · {{ batchDelaySec() }}s delay)
+          </button>
+
+          <button
+            *ngIf="isBatchRunning()"
+            type="button"
+            class="btn btn-danger"
+            (click)="stopBatch()"
+            title="Stop the current running batch"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16">
+              <path fill="currentColor" d="M6 6h12v12H6z"/>
+            </svg>
+            Stop Batch (Sent {{ batchProgress()?.current }}/{{ batchCount() }})
+          </button>
+        </div>
+
+        <div class="pipeline-card__options">
+          <label class="auto-gen-checkbox">
+            <input type="checkbox" [ngModel]="autoGenerateOnSend()" (ngModelChange)="autoGenerateOnSend.set($event)" />
+            <span>Auto-generate new IDs on publish</span>
+          </label>
+        </div>
+
+        <hr class="hr" />
+
+        <div class="payload-box">
+          <div class="payload-box__head">
+            <span class="card-kicker">Last Dispatched Event</span>
+            <span *ngIf="lastPublished()" class="tag tag-neutral">HTTP 200 OK</span>
+          </div>
+
+          <div *ngIf="lastPublished(); else noPublishTpl" class="payload-box__details">
+            <div class="meta-row">
+              <span class="meta-label">Event ID:</span>
+              <code class="meta-val font-mono">{{ lastPublished()!.id }}</code>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">Message:</span>
+              <code class="meta-val font-mono">"{{ lastPublished()!.message }}"</code>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">Source Service:</span>
+              <span class="meta-val font-mono">{{ lastPublished()!.sourceService }}</span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">Timestamp:</span>
+              <span class="meta-val">{{ formatTimestamp(lastPublished()!.timestamp) }}</span>
+            </div>
+          </div>
+          <ng-template #noPublishTpl>
+            <div class="payload-box__empty">No events dispatched yet in this session.</div>
+          </ng-template>
+        </div>
+      </div>
+
+      <!-- Column 2: Consumer (Planogram Service) -->
+      <div class="card pipeline-card">
+        <div class="pipeline-card__header">
+          <div>
+            <div class="card-kicker">Event Consumer · Planogram Service</div>
+            <h3 class="card-title">Consumer Inspection</h3>
+          </div>
+          <span class="tag tag-neutral">Port 8002</span>
+        </div>
+
+        <p class="card-body">
+          Queries <code>PingEventConsumer</code> to see the last event ingested by
+          <code>planogram-service-group</code>.
+        </p>
+
+        <div class="consumer-controls">
+          <button type="button" class="btn btn-secondary" [disabled]="isPolling()" (click)="pollConsumer(true)">
+            <svg viewBox="0 0 24 24" width="16" height="16">
+              <use href="#i-refresh"></use>
+            </svg>
+            {{ isPolling() ? 'Checking…' : 'Poll Consumer Now' }}
+          </button>
+
+          <button type="button" class="btn" [class.btn-primary]="autoPollEnabled()"
+            [class.btn-secondary]="!autoPollEnabled()" (click)="toggleAutoPoll()">
+            {{ autoPollEnabled() ? 'Auto-Poll: ON (3s)' : 'Auto-Poll: OFF' }}
+          </button>
+        </div>
+
+        <div class="consumer-status-bar">
+          <span class="status-pulse" [class.is-live]="autoPollEnabled()"></span>
+          <span class="status-text">
+            Group: <code>planogram-service-group</code>
+            · Checked: {{ lastPollTime() ? formatTimestamp(lastPollTime()) : 'Never' }}
+          </span>
+        </div>
+
+        <hr class="hr" />
+
+        <div class="payload-box">
+          <div class="payload-box__head">
+            <span class="card-kicker">Last Ingested Event</span>
+            <span *ngIf="lastConsumed()?.id" class="tag tag-accent">Ingested</span>
+          </div>
+
+          <div *ngIf="lastConsumed()?.id; else noConsumedTpl" class="payload-box__details">
+            <div class="meta-row">
+              <span class="meta-label">Event ID:</span>
+              <code class="meta-val font-mono">{{ lastConsumed()!.id }}</code>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">Message:</span>
+              <code class="meta-val font-mono">"{{ lastConsumed()!.message }}"</code>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">Source Service:</span>
+              <span class="meta-val font-mono">{{ lastConsumed()!.sourceService }}</span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">Timestamp:</span>
+              <span class="meta-val">{{ formatTimestamp(lastConsumed()!.timestamp) }}</span>
+            </div>
+          </div>
+          <ng-template #noConsumedTpl>
+            <div class="payload-box__empty">
+              {{ lastConsumed()?.message || 'No ping received yet by demo-planogram-service.' }}
+            </div>
+          </ng-template>
+        </div>
+
+        <!-- Multi-Consumer Groups Fan-Out Overview -->
+        <div *ngIf="consumerGroups().length > 0" class="consumer-groups-box">
+          <span class="card-kicker">3 Consumer Groups · Fan-Out Pattern</span>
+          <div class="consumer-groups-cards">
+            <div *ngFor="let g of consumerGroups()" class="consumer-group-item">
+              <div class="consumer-group-item__head">
+                <span class="consumer-group-item__pill">{{ g.groupId }}</span>
+                <span class="consumer-group-item__count">{{ g.totalConsumed }} consumed</span>
+              </div>
+              <div class="consumer-group-item__meta">
+                <span>Last ID: <code>{{ g.lastEvent?.id || '—' }}</code></span>
+                <span>Partition {{ g.lastPartition }} · Offset {{ g.lastOffset }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Event Activity Log Table -->
+    <div class="activity-card card">
+      <div class="activity-card__head">
+        <div>
+          <h3 class="card-title">Event Activity Log</h3>
+          <span class="card-meta">Real-time session trail of publish and consumer poll records</span>
+        </div>
+        <button type="button" class="btn btn-secondary" [disabled]="logs().length === 0" (click)="clearLogs()">
+          Clear Log
+        </button>
+      </div>
+
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Direction</th>
+              <th>Source</th>
+              <th>Event ID</th>
+              <th>Payload</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngIf="logs().length === 0">
+              <td colspan="6" class="table-empty">
+                No activity recorded yet. Click "Publish Ping Event" above to initiate your first event!
+              </td>
+            </tr>
+            <tr *ngFor="let log of logs()">
+              <td class="col-time">{{ formatTimestamp(log.timestamp) }}</td>
+              <td>
+                <span class="tag" [class.tag-accent]="log.direction === 'PUBLISHED'"
+                  [class.tag-neutral]="log.direction === 'CONSUMED'">
+                  {{ log.direction }}
+                </span>
+              </td>
+              <td><code>{{ log.sourceService }}</code></td>
+              <td><code>{{ log.id.length <= 8 ? log.id : (log.id.substring(0, 8) + '...') }}</code></td>
+              <td class="col-msg">{{ log.message }}</td>
+              <td>
+                <span class="status-pill" [class.status-pill--success]="log.status === 'SUCCESS'"
+                  [class.status-pill--error]="log.status === 'ERROR'">
+                  {{ log.note || log.status }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- TAB 2: Multiple Consumers Guide -->
+  <div *ngIf="activeTab() === 'guide'" class="events-page__content guide-content">
+
+    <div class="card">
+      <div class="card-kicker">Architecture Concepts</div>
+      <h3 class="card-title">How Multiple Consumers Work in Apache Kafka</h3>
+      <p class="card-body">
+        In Kafka, "multiple consumers" can mean two completely different things. You can test both
+        in this project right now:
+      </p>
+
+      <div class="concepts-grid">
+        <div class="concept-card">
+          <div class="concept-badge">Pattern 1</div>
+          <h4>Fan-Out (Publish-Subscribe)</h4>
+          <p>
+            <strong>Different Consumer Groups:</strong> Both consumers subscribe to the same topic
+            <code>demo-ping-topic</code>, but each has a different <code>groupId</code> (e.g.
+            <code>planogram-service-group</code> vs <code>audit-service-group</code>).
+          </p>
+          <ul class="concept-list">
+            <li>Kafka gives <strong>100% of the messages</strong> to Group A AND Group B.</li>
+            <li>Each group tracks its own committed offsets independently in Kafka.</li>
+            <li>Perfect for: Microservices sync, sending notifications, audit logging.</li>
+          </ul>
+        </div>
+
+        <div class="concept-card">
+          <div class="concept-badge">Pattern 2</div>
+          <h4>Load Balancing (Competing Consumers)</h4>
+          <p>
+            <strong>Same Consumer Group, Multiple Partitions:</strong> Multiple worker threads or
+            service instances share the <strong>same</strong> <code>groupId</code>.
+          </p>
+          <ul class="concept-list">
+            <li>The topic has multiple partitions (e.g. 3 partitions).</li>
+            <li>Kafka balances partitions across workers: Worker 1 takes partition 0, Worker 2 takes partition 1, etc.
+            </li>
+            <li>Each message goes to <strong>only one</strong> worker in that group (divided labor).</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Practical Experiment 1 -->
+    <div class="card">
+      <div class="card-kicker">Hands-On Flow 1</div>
+      <h3 class="card-title">How to Add a Second Consumer Group (Fan-Out)</h3>
+      <p class="card-body">
+        Create an <code>AuditEventConsumer.java</code> in either <code>demo-assets-service</code> or
+        <code>demo-planogram-service</code>:
+      </p>
+      <pre class="code-block"><code>@Service
+public class AuditEventConsumer &#123;
+    private static final Logger log = LoggerFactory.getLogger(AuditEventConsumer.class);
+
+    // Using a different groupId creates a second independent consumer!
+    @KafkaListener(topics = "demo-ping-topic", groupId = "audit-service-group")
+    public void consume(PingEvent event) &#123;
+        log.info("[AUDIT-GROUP] Captured ping event: &#123;&#125;", event.getId());
+    &#125;
+&#125;</code></pre>
+      <div class="guide-callout">
+        <strong>Observation in WebApp:</strong>
+        When you click "Publish Ping Event" above, both <code>planogram-service-group</code> and
+        <code>audit-service-group</code> will process the exact same event at the exact same time.
+      </div>
+    </div>
+
+    <!-- Practical Experiment 2 -->
+    <div class="card">
+      <div class="card-kicker">Hands-On Flow 2</div>
+      <h3 class="card-title">How to Enable Multi-Threaded Partition Workers</h3>
+      <p class="card-body">
+        Step 1: In <code>KafkaTopicConfig.java</code>, increase partitions from 1 to 3:
+      </p>
+      <pre class="code-block"><code>@Bean
+public NewTopic pingTopic() &#123;
+    return TopicBuilder.name(PING_TOPIC)
+            .partitions(3)  // 3 partitions
+            .replicas(1)
+            .build();
+&#125;</code></pre>
+      <p class="card-body">
+        Step 2: In <code>PingEventConsumer.java</code>, add <code>concurrency = "3"</code>:
+      </p>
+      <pre class="code-block"><code>@KafkaListener(
+    topics = "demo-ping-topic",
+    groupId = "planogram-service-group",
+    concurrency = "3" // 3 parallel consumer threads for 3 partitions
+)
+public void consume(PingEvent event, @Header(KafkaHeaders.RECEIVED_PARTITION) int partition) &#123;
+    log.info("[Thread: &#123;&#125;] Received event on partition &#123;&#125;: &#123;&#125;",
+        Thread.currentThread().getName(), partition, event.getId());
+&#125;</code></pre>
+      <div class="guide-callout">
+        <strong>Observation in WebApp:</strong>
+        Click "Send Batch (3x)" in the tester tab. You'll see 3 messages distributed across the
+        3 partitions and handled concurrently by different threads in the planogram service logs!
+      </div>
+    </div>
+
+  </div>
+</div>

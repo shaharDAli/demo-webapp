@@ -1,0 +1,389 @@
+<div class="logs-page">
+  <!-- Breadcrumb -->
+  <div class="logs-page__crumb">
+    <span>Messaging</span>
+    <span class="logs-page__crumb-sep">/</span>
+    <a routerLink="/events" class="crumb-link">Kafka Events</a>
+    <span class="logs-page__crumb-sep">/</span>
+    <span class="is-current">Historical Logs & Coordinates</span>
+  </div>
+
+  <!-- Header -->
+  <div class="logs-page__head">
+    <div>
+      <div class="logs-page__kicker">MySQL Audit Trail · Broker Coordinates · Consumer Telemetry</div>
+      <h2>Kafka Historical Event Logs</h2>
+      <div class="logs-page__subtitle">
+        Observe exact Kafka coordinates (<code>Topic</code>, <code>Partition</code>, <code>Offset</code>, <code>Key</code>, <code>Leader Epoch</code>) and worker assignments recorded when messages are ingested by consumers.
+      </div>
+    </div>
+
+    <div class="logs-page__head-actions">
+      <a routerLink="/events" class="btn btn-secondary" title="Switch back to live event bus producer & testing dashboard">
+        <svg viewBox="0 0 24 24" width="16" height="16">
+          <use href="#i-event"></use>
+        </svg>
+        Live Events Monitor
+      </a>
+
+      <button
+        type="button"
+        class="btn btn-primary"
+        [disabled]="isPulling() || isLoading()"
+        (click)="pullExistingEvents()"
+        title="Pull existing events from Kafka broker topic partitions and sync unlogged events into MySQL kafka_event_logs table"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        {{ isPulling() ? 'Pulling from Kafka…' : 'Pull Broker Events' }}
+      </button>
+
+      <button type="button" class="btn btn-secondary" [disabled]="isLoading() || isPulling()" (click)="loadLogs(true)" title="Fetch latest records from MySQL database">
+        <svg viewBox="0 0 24 24" width="16" height="16">
+          <use href="#i-refresh"></use>
+        </svg>
+        {{ isLoading() ? 'Fetching…' : 'Refresh Logs' }}
+      </button>
+
+      <button
+        type="button"
+        class="btn"
+        [class.btn-primary]="autoRefresh()"
+        [class.btn-secondary]="!autoRefresh()"
+        (click)="toggleAutoRefresh()"
+        title="Automatically refresh historical logs every 3 seconds"
+      >
+        <span class="pulse-indicator" [class.is-live]="autoRefresh()"></span>
+        {{ autoRefresh() ? 'Auto-Refresh: ON (3s)' : 'Auto-Refresh: OFF' }}
+      </button>
+    </div>
+  </div>
+
+  <!-- Metrics Bar -->
+  <div class="metrics-grid">
+    <div class="metric-card">
+      <div class="metric-card__label">Total Consumed Events Logged</div>
+      <div class="metric-card__value font-mono">{{ stats().total }}</div>
+      <div class="metric-card__caption">Records in <code>kafka_event_logs</code></div>
+    </div>
+
+    <div class="metric-card">
+      <div class="metric-card__label">Unique Event IDs (0-5 chars)</div>
+      <div class="metric-card__value font-mono text-accent">{{ stats().uniqueEvents }}</div>
+      <div class="metric-card__caption">Distinct business events captured</div>
+    </div>
+
+    <div class="metric-card">
+      <div class="metric-card__label">Active Partitions Recorded</div>
+      <div class="metric-card__value font-mono">{{ stats().partitions }} <span class="metric-sub">/ 5</span></div>
+      <div class="metric-card__caption">Partitions distributed across workers</div>
+    </div>
+
+    <div class="metric-card">
+      <div class="metric-card__label">Consumer Groups Tracked</div>
+      <div class="metric-card__value font-mono">{{ stats().groups }}</div>
+      <div class="metric-card__caption">Independent fan-out offsets</div>
+    </div>
+  </div>
+
+  <!-- Filter & Search Toolbar -->
+  <div class="card toolbar-card">
+    <div class="toolbar-grid">
+      <!-- Search Input -->
+      <div class="field field--search">
+        <label for="searchLogs">Search Coordinates & Payload</label>
+        <input
+          id="searchLogs"
+          type="text"
+          class="input"
+          [ngModel]="searchTerm()"
+          (ngModelChange)="searchTerm.set($event)"
+          placeholder="Filter by Event ID, Message, Key, Topic, or Thread…"
+        />
+      </div>
+
+      <!-- Consumer Group Filter -->
+      <div class="field">
+        <label for="groupSelect">Consumer Group</label>
+        <select
+          id="groupSelect"
+          class="input"
+          [ngModel]="selectedGroup()"
+          (ngModelChange)="selectedGroup.set($event)"
+        >
+          <option value="ALL">All Consumer Groups ({{ logs().length }})</option>
+          <option *ngFor="let g of availableGroups()" [value]="g">{{ g }}</option>
+        </select>
+      </div>
+
+      <!-- Partition Filter -->
+      <div class="field">
+        <label for="partitionSelect">Topic Partition</label>
+        <select
+          id="partitionSelect"
+          class="input"
+          [ngModel]="selectedPartition()"
+          (ngModelChange)="selectedPartition.set($event)"
+        >
+          <option value="ALL">All Partitions (0 - 4)</option>
+          <option *ngFor="let p of availablePartitions()" [value]="p">Partition {{ p }}</option>
+        </select>
+      </div>
+
+      <!-- Worker Filter -->
+      <div class="field">
+        <label for="workerSelect">Worker / Thread</label>
+        <select
+          id="workerSelect"
+          class="input"
+          [ngModel]="selectedWorker()"
+          (ngModelChange)="selectedWorker.set($event)"
+        >
+          <option value="ALL">All Workers</option>
+          <option *ngFor="let w of availableWorkers()" [value]="w">{{ w }}</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="toolbar-footer">
+      <span class="toolbar-count">
+        Showing <strong>{{ filteredLogs().length }}</strong> of <strong>{{ logs().length }}</strong> records
+        <span *ngIf="lastRefreshTime()"> · Last fetched: {{ formatTimestamp(lastRefreshTime()) }}</span>
+      </span>
+
+      <button
+        *ngIf="searchTerm() || selectedGroup() !== 'ALL' || selectedPartition() !== 'ALL' || selectedWorker() !== 'ALL'"
+        type="button"
+        class="btn btn-secondary btn-sm"
+        (click)="searchTerm.set(''); selectedGroup.set('ALL'); selectedPartition.set('ALL'); selectedWorker.set('ALL')"
+      >
+        Clear All Filters
+      </button>
+    </div>
+  </div>
+
+  <!-- Historical Logs Table -->
+  <div class="card table-card">
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Consumed Time</th>
+            <th>Event ID</th>
+            <th>Consumer Group</th>
+            <th>Worker / Instance</th>
+            <th>Partition</th>
+            <th>Offset</th>
+            <th>Key</th>
+            <th>Message Payload</th>
+            <th>Source</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngIf="filteredLogs().length === 0">
+            <td colspan="11" class="table-empty">
+              <span *ngIf="logs().length === 0">No historical Kafka event coordinates recorded yet. Click "Live Events Monitor" to publish events!</span>
+              <span *ngIf="logs().length > 0">No records match the current filter criteria.</span>
+            </td>
+          </tr>
+
+          <tr
+            *ngFor="let item of filteredLogs()"
+            class="log-row"
+            [class.is-selected]="selectedLog()?.id === item.id"
+            (click)="selectLog(item)"
+          >
+            <!-- Time -->
+            <td class="col-time font-mono">{{ formatTimestamp(item.consumedAt) }}</td>
+
+            <!-- Event ID -->
+            <td>
+              <code class="id-badge font-mono" [title]="'Click to copy ID: ' + item.eventId" (click)="$event.stopPropagation(); copyText(item.eventId || '', 'Event ID')">
+                {{ item.eventId || '—' }}
+              </code>
+            </td>
+
+            <!-- Consumer Group -->
+            <td>
+              <span
+                class="group-tag"
+                [class.group-tag--planogram]="item.consumerGroupId === 'planogram-service-group'"
+                [class.group-tag--audit]="item.consumerGroupId === 'audit-service-group'"
+                [class.group-tag--notif]="item.consumerGroupId === 'notification-service-group'"
+              >
+                {{ item.consumerGroupId }}
+              </span>
+            </td>
+
+            <!-- Worker Name -->
+            <td>
+              <span class="worker-pill">{{ item.workerName || 'Default' }}</span>
+            </td>
+
+            <!-- Partition -->
+            <td class="col-partition">
+              <span class="partition-badge font-mono">P:{{ item.partitionId }}</span>
+            </td>
+
+            <!-- Offset -->
+            <td class="col-offset font-mono">{{ item.recordOffset }}</td>
+
+            <!-- Key -->
+            <td>
+              <code class="font-mono text-muted">{{ item.eventKey || 'null' }}</code>
+            </td>
+
+            <!-- Message -->
+            <td class="col-msg" [title]="item.message || ''">
+              {{ item.message || '—' }}
+            </td>
+
+            <!-- Source Service -->
+            <td>
+              <span class="source-tag font-mono">{{ item.sourceService || '—' }}</span>
+            </td>
+
+            <!-- Status -->
+            <td>
+              <span class="status-pill status-pill--success">{{ item.status }}</span>
+            </td>
+
+            <!-- Action -->
+            <td>
+              <button
+                type="button"
+                class="btn btn-secondary btn-xs"
+                (click)="$event.stopPropagation(); selectLog(item)"
+                title="Inspect all Kafka coordinates and metadata"
+              >
+                Coordinates
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Detailed Coordinates Inspection Drawer / Modal -->
+  <div *ngIf="selectedLog()" class="drawer-overlay" (click)="closeDrawer()">
+    <div class="drawer" (click)="$event.stopPropagation()">
+      <div class="drawer__head">
+        <div>
+          <div class="card-kicker">Kafka Event Coordinates Inspector</div>
+          <h3 class="drawer__title">Event ID: {{ selectedLog()!.eventId || 'N/A' }}</h3>
+        </div>
+        <button type="button" class="btn-close" (click)="closeDrawer()" title="Close details">✕</button>
+      </div>
+
+      <div class="drawer__body">
+        <!-- Coordinate Cards Grid -->
+        <div class="drawer-section">
+          <h4>Kafka Broker Coordinates</h4>
+          <div class="coords-grid">
+            <div class="coord-box">
+              <span class="coord-label">Topic</span>
+              <span class="coord-val font-mono">{{ selectedLog()!.topic }}</span>
+            </div>
+            <div class="coord-box">
+              <span class="coord-label">Partition ID</span>
+              <span class="coord-val font-mono text-accent">Partition {{ selectedLog()!.partitionId }}</span>
+            </div>
+            <div class="coord-box">
+              <span class="coord-label">Record Offset</span>
+              <span class="coord-val font-mono">{{ selectedLog()!.recordOffset }}</span>
+            </div>
+            <div class="coord-box">
+              <span class="coord-label">Partitioning Key</span>
+              <span class="coord-val font-mono">{{ selectedLog()!.eventKey || 'null' }}</span>
+            </div>
+            <div class="coord-box">
+              <span class="coord-label">Record Timestamp</span>
+              <span class="coord-val font-mono">{{ selectedLog()!.recordTimestamp ? formatFullDate(selectedLog()!.recordTimestamp) : '—' }}</span>
+            </div>
+            <div class="coord-box">
+              <span class="coord-label">Timestamp Type</span>
+              <span class="coord-val font-mono">{{ selectedLog()!.timestampType || 'CreateTime' }}</span>
+            </div>
+            <div class="coord-box">
+              <span class="coord-label">Leader Epoch</span>
+              <span class="coord-val font-mono">{{ selectedLog()!.leaderEpoch ?? '—' }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="drawer-section">
+          <h4>Consumer Execution Coordinates</h4>
+          <div class="coords-grid">
+            <div class="coord-box">
+              <span class="coord-label">Consumer Group ID</span>
+              <span class="coord-val font-mono">{{ selectedLog()!.consumerGroupId }}</span>
+            </div>
+            <div class="coord-box">
+              <span class="coord-label">Assigned Worker</span>
+              <span class="coord-val font-mono text-accent">{{ selectedLog()!.workerName || 'Default' }}</span>
+            </div>
+            <div class="coord-box">
+              <span class="coord-label">Consumer Client ID</span>
+              <span class="coord-val font-mono">{{ selectedLog()!.consumerClientId || '—' }}</span>
+            </div>
+            <div class="coord-box">
+              <span class="coord-label">JVM Execution Thread</span>
+              <span class="coord-val font-mono">{{ selectedLog()!.threadName || '—' }}</span>
+            </div>
+            <div class="coord-box">
+              <span class="coord-label">Consumed At</span>
+              <span class="coord-val font-mono">{{ formatFullDate(selectedLog()!.consumedAt) }}</span>
+            </div>
+            <div class="coord-box">
+              <span class="coord-label">Commit Status</span>
+              <span class="coord-val font-mono text-success">{{ selectedLog()!.status }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="drawer-section">
+          <h4>Event Payload Data</h4>
+          <div class="coords-grid">
+            <div class="coord-box">
+              <span class="coord-label">Event ID</span>
+              <span class="coord-val font-mono">{{ selectedLog()!.eventId }}</span>
+            </div>
+            <div class="coord-box">
+              <span class="coord-label">Origin Source Service</span>
+              <span class="coord-val font-mono">{{ selectedLog()!.sourceService }}</span>
+            </div>
+            <div class="coord-box" style="grid-column: 1 / -1;">
+              <span class="coord-label">Message</span>
+              <span class="coord-val font-mono">"{{ selectedLog()!.message }}"</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Raw JSON Preview -->
+        <div class="drawer-section">
+          <div class="json-header">
+            <h4>Full Coordinate Record (JSON)</h4>
+            <button
+              type="button"
+              class="btn btn-secondary btn-xs"
+              (click)="copySelectedJson()"
+            >
+              Copy JSON
+            </button>
+          </div>
+          <pre class="code-block"><code>{{ selectedLog() | json }}</code></pre>
+        </div>
+      </div>
+
+      <div class="drawer__foot">
+        <button type="button" class="btn btn-secondary" (click)="closeDrawer()">Close Inspector</button>
+      </div>
+    </div>
+  </div>
+</div>
