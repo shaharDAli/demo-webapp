@@ -136,6 +136,72 @@ export class KafkaEventsService {
       {}
     );
   }
+
+  /**
+   * Sends a custom order event to assets-service producer.
+   */
+  sendOrder(payload: OrderEventPayload): Observable<OrderEventResponse> {
+    return this.http.post<OrderEventResponse>(`${this.assetsApiUrl}/order`, payload);
+  }
+
+  /**
+   * Triggers a specific failure/learning scenario (success, transient-retry, exhaust-retry-dlt, fatal-error).
+   */
+  sendOrderScenario(
+    scenario: string,
+    customerId: string = 'CUST-1001',
+    amount: number = 249.5
+  ): Observable<OrderEventResponse> {
+    return this.http.post<OrderEventResponse>(
+      `${this.assetsApiUrl}/order/scenario/${scenario}?customerId=${encodeURIComponent(customerId)}&amount=${amount}`,
+      {}
+    );
+  }
+
+  /**
+   * Reads available learning scenarios and explanations.
+   */
+  getOrderScenarios(): Observable<any> {
+    return this.http.get<any>(`${this.assetsApiUrl}/order/scenarios`);
+  }
+
+  /**
+   * Reads order consumer live metrics, retry recovery counts, and recent orders.
+   */
+  getOrderConsumerStatus(): Observable<any> {
+    return this.http.get<any>(`${this.planogramApiUrl}/order/status`);
+  }
+
+  /**
+   * Reads DLT consumer live status, original topic/partition/offset, and exception headers.
+   */
+  getOrderDltStatus(): Observable<any> {
+    return this.http.get<any>(`${this.planogramApiUrl}/order/dlt`);
+  }
+}
+
+export interface OrderEventPayload {
+  orderId?: string;
+  customerId?: string;
+  amount?: number;
+  currency?: string;
+  status?: string;
+  failureScenario?: string;
+  retryCount?: number;
+  message?: string;
+  timestamp?: number;
+}
+
+export interface OrderEventResponse {
+  orderId: string;
+  customerId: string;
+  amount: number;
+  currency: string;
+  status: string;
+  failureScenario: string;
+  retryCount: number;
+  message: string;
+  timestamp: string | number;
 }
 
 export interface KafkaPullResult {
